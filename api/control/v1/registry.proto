@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package outrelay.control.v1;
+
+option go_package = "github.com/boanlab/OutRelay/lib/control/v1;controlv1";
+
+// Registry is the controller's authoritative registry. Relays call
+// it to publish agent registrations, resolve services for incoming
+// OPEN_STREAM frames, and self-register at startup. Inter-relay
+// forwarding consumes the relay_id field returned by Resolve.
+service Registry {
+  // RegisterService is called by a relay when one of its connected
+  // agents sends ORP REGISTER. The controller persists the binding
+  // (tenant, name) -> (agent_uri, relay_id).
+  rpc RegisterService(RegisterServiceRequest) returns (RegisterServiceResponse);
+
+  // DeregisterAgent removes every service belonging to agent_uri.
+  // Called by the relay when the agent's QUIC connection closes.
+  rpc DeregisterAgent(DeregisterAgentRequest) returns (DeregisterAgentResponse);
+
+  // Resolve looks up the provider(s) for service_name. Today returns
+  // a single provider; the repeated field leaves room for replicated
+  // services.
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+
+  // Watch streams change events for the requested services. Empty
+  // service_names means "all services in tenant".
+  rpc Watch(WatchRequest) returns (stream WatchEvent);
+
+  // UpsertRelay is called at relay startup to register its presence.
+  // Subsequent calls act as heartbeats by updating last_heartbeat.
+  rpc UpsertRelay(UpsertRelayRequest) returns (UpsertRelayResponse);
+}
+
+message RegisterServiceRequest {
+  string tenant       = 1;
+  string service_name = 2;
+  string agent_uri    = 3; // URI SAN of the provider agent
+  string relay_id     = 4; // id of the relay holding the agent's conn
+  string local_addr   = 5; // informational
+}
+
+message RegisterServiceResponse {
+  string service_id = 1;
+}
+
+message DeregisterAgentRequest {
+  string tenant    = 1;
+  string agent_uri = 2;
+  string relay_id  = 3;
+}
+
+message DeregisterAgentResponse {}
+
+message ResolveRequest {
+  string tenant       = 1;
+  string service_name = 2;
+}
+
+message Provider {
+  string service_id        = 1;
+  string agent_uri         = 2;
+  string relay_id          = 3;
+  string local_addr        = 4;
+  int64  updated_at_unix_ms = 5;
+  // relay_endpoint is the address agents (and other relays) dial to
+  // reach the relay holding this provider. Populated by the controller
+  // via a JOIN with relay_instances; empty if the relay never called
+  // UpsertRelay. Used by inter-relay stream forwarding.
+  string relay_endpoint    = 6;
+}
+
+message ResolveResponse {
+  repeated Provider providers = 1;
+}
+
+message WatchRequest {
+  string tenant = 1;
+  // empty = all services in tenant
+  repeated string service_names = 2;
+}
+
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  EVENT_KIND_REGISTER    = 1;
+  EVENT_KIND_DEREGISTER  = 2;
+}
+
+message WatchEvent {
+  EventKind kind = 1;
+  Provider  provider = 2;
+  string    service_name = 3;
+}
+
+message UpsertRelayRequest {
+  string id       = 1;
+  string region   = 2;
+  string endpoint = 3;
+}
+
+message UpsertRelayResponse {}

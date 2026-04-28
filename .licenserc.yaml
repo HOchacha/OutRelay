@@ -1,0 +1,22 @@
+header:
+  license:
+    spdx-id: Apache-2.0
+    copyright-owner: BoanLab @ Dankook University
+    content: |
+      SPDX-License-Identifier: Apache-2.0
+      Copyright 2026 BoanLab @ Dankook University
+
+  paths:
+    - "**/*.go"
+    - "**/Makefile"
+    - "**/Dockerfile"
+
+  paths-ignore:
+    - "lib/**/*.pb.go"
+    - "lib/**/*_grpc.pb.go"
+
+  comment: on-failure
+
+dependency:
+  files:
+    - go.mod

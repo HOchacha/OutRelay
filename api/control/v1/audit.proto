@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package outrelay.control.v1;
+
+import "policy.proto";
+
+option go_package = "github.com/boanlab/OutRelay/lib/control/v1;controlv1";
+
+// Audit ingests stream-open decisions from relays and serves history
+// queries to operators. The relay fires one Record per OPEN_STREAM.
+service Audit {
+  rpc Record (RecordAuditRequest)  returns (RecordAuditResponse);
+  rpc Query  (QueryAuditRequest)   returns (stream AuditEvent);
+}
+
+message AuditEvent {
+  int64    ts_unix_ms = 1;
+  string   tenant     = 2;
+  string   caller     = 3;
+  string   target     = 4;
+  string   method     = 5;
+  Decision decision   = 6;
+  string   reason     = 7;
+  string   stream_id  = 8;
+}
+
+message RecordAuditRequest {
+  AuditEvent event = 1;
+}
+
+message RecordAuditResponse {}
+
+message QueryAuditRequest {
+  string tenant         = 1;
+  string caller         = 2; // optional exact match
+  string target         = 3; // optional exact match
+  int64  since_unix_ms  = 4; // 0 = no lower bound
+  int32  limit          = 5; // 0 = no cap
+}

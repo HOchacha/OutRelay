@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package outrelay.control.v1;
+
+option go_package = "github.com/boanlab/OutRelay/lib/control/v1;controlv1";
+
+// Policy is the controller's authoritative policy registry. Relays
+// subscribe via Watch (server-stream) so they cache the full policy
+// set in memory and re-evaluate on every OPEN_STREAM.
+service Policy {
+  rpc AddPolicy   (AddPolicyRequest)   returns (AddPolicyResponse);
+  rpc RemovePolicy(RemovePolicyRequest) returns (RemovePolicyResponse);
+  rpc ListPolicies(ListPoliciesRequest) returns (ListPoliciesResponse);
+
+  // Watch streams the full snapshot first (one ADDED event per
+  // existing policy followed by one SNAPSHOT_END marker), then live
+  // updates until the client cancels.
+  rpc Watch(WatchPoliciesRequest) returns (stream PolicyEvent);
+}
+
+enum Decision {
+  DECISION_UNSPECIFIED = 0;
+  DECISION_ALLOW = 1;
+  DECISION_DENY = 2;
+}
+
+// P2PMode controls whether streams matching this rule are eligible
+// for P2P (direct agent-to-agent) promotion.
+enum P2PMode {
+  // P2P_ALLOWED: opportunistic. The default — try promotion in the
+  // background, fall back to relay on failure.
+  P2P_ALLOWED   = 0;
+  // P2P_FORBIDDEN: never attempt. All bytes flow through the relay
+  // so audit / metering can observe them.
+  P2P_FORBIDDEN = 1;
+  // P2P_REQUIRED: stream open is rejected if P2P cannot be
+  // established. Use for channels where relay terminations are a
+  // security concern (e.g. plaintext key exchange).
+  P2P_REQUIRED  = 2;
+}
+
+message PolicyRule {
+  string id              = 1;
+  string tenant          = 2;
+  string caller_pattern  = 3; // glob: outrelay://acme/svc-* or exact URI
+  string target_pattern  = 4; // glob: svc-* or exact name
+  string method_pattern  = 5; // glob: "POST /charge" or "POST *" (empty = match all)
+  Decision decision      = 6;
+  int64 expires_unix_ms  = 7; // 0 = never expires
+  int64 created_at_unix_ms = 8;
+  P2PMode p2p_mode       = 9;
+}
+
+message AddPolicyRequest {
+  PolicyRule rule = 1;
+}
+
+message AddPolicyResponse {
+  string id = 1;
+}
+
+message RemovePolicyRequest {
+  string tenant = 1;
+  string id     = 2;
+}
+
+message RemovePolicyResponse {
+  bool removed = 1;
+}
+
+message ListPoliciesRequest {
+  string tenant = 1;
+}
+
+message ListPoliciesResponse {
+  repeated PolicyRule rules = 1;
+}
+
+message WatchPoliciesRequest {
+  string tenant = 1;
+}
+
+message PolicyEvent {
+  enum Kind {
+    POLICY_KIND_UNSPECIFIED = 0;
+    POLICY_KIND_ADDED       = 1;
+    POLICY_KIND_REMOVED     = 2;
+    // SNAPSHOT_END marks the end of the initial bulk send so the
+    // relay can flip to "live" mode.
+    POLICY_KIND_SNAPSHOT_END = 3;
+  }
+  Kind kind        = 1;
+  PolicyRule rule  = 2;
+  string removed_id = 3;
+}

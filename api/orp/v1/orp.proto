@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package outrelay.orp.v1;
+
+option go_package = "github.com/boanlab/OutRelay/lib/orp/v1;orpv1";
+
+// ORP wire format. The 8-byte fixed frame header is defined in
+// lib/orp/frame.go (not in protobuf); the messages below are the
+// protobuf payloads for each control / data frame type.
+
+// FrameTypeHello (0x001) — agent -> relay.
+message Hello {
+  string protocol_version = 1; // "orp/1"
+  string agent_uri = 2;        // identity URI from cert SAN, e.g. outrelay://acme/agent/<uuid>
+  repeated string capabilities = 3;
+}
+
+// FrameTypeHelloAck (0x002) — relay -> agent.
+message HelloAck {
+  string session_id = 1;
+  int64 server_time_unix_ms = 2;
+  repeated string accepted_features = 3;
+}
+
+// FrameTypeRegister (0x003) — agent -> relay.
+//
+// The agent declares it provides service_name. local_addr is purely
+// informational (the agent dials its own local backend when it
+// receives INCOMING_STREAM, never the relay).
+message Register {
+  string service_name = 1;
+  string local_addr = 2;
+}
+
+// FrameTypeRegisterAck (0x004) — relay -> agent.
+message RegisterAck {
+  string service_id = 1;
+}
+
+// FrameTypeOpenStream (0x010) — consumer-side agent -> relay.
+//
+// Sent on a freshly opened QUIC stream; the same stream becomes the
+// data carrier after the relay enters splice mode. stream_id is the
+// 64-bit identifier that follows this stream across relay failover
+// and across P2P promotion / demotion. The consumer-side agent
+// generates it.
+message OpenStream {
+  string target_service = 1;
+  string method = 2; // optional; e.g. "POST /charge"
+  uint64 stream_id = 3;
+}
+
+// FrameTypeIncomingStream (0x011) — relay -> provider-side agent.
+//
+// Sent on a fresh QUIC stream opened by the relay toward the provider.
+// The provider responds with STREAM_ACCEPT or STREAM_REJECT on the
+// same stream. stream_id mirrors OpenStream so both ends agree.
+message IncomingStream {
+  string target_service = 1;
+  string method = 2;
+  string source_agent_uri = 3; // caller identity for policy / audit
+  uint64 stream_id = 4;
+}
+
+// FrameTypeStreamCheckpoint (0x110) — agent -> agent (relay forwards).
+//
+// Periodically (default 100ms) each agent sends a checkpoint on its
+// control stream. my_position is the count of bytes the agent has
+// written into the data stream; peer_ack_position is the count of
+// bytes the agent has consumed from its peer, so the peer can free
+// its ring buffer up to that offset.
+message StreamCheckpoint {
+  uint64 stream_id          = 1;
+  uint64 my_position        = 2;
+  uint64 peer_ack_position  = 3;
+}
+
+// FrameTypeStreamResume (0x111) — agent -> relay (after reconnect).
+//
+// After detecting a relay-side disconnect, both agents reconnect and
+// emit STREAM_RESUME on a fresh stream for every stream that was
+// in flight. The receiving relay buckets these by stream_id with a
+// 5-second window; once both halves arrive, the relay splices them
+// and each agent retransmits bytes (peer.peer_ack_position,
+// my.my_position] from its ring buffer.
+message StreamResume {
+  uint64 stream_id          = 1;
+  uint64 my_position        = 2;
+  uint64 peer_ack_position  = 3;
+}
+
+// Opportunistic P2P promotion frames.
+
+// FrameTypeObservedAddrQuery (0x120) — agent -> relay.
+// Sent on the agent's control stream. The relay replies with
+// OBSERVED_ADDR_RESP carrying the agent's NAT-mapped src ip:port.
+// Effectively a built-in STUN: the relay already terminates every
+// agent's outbound conn so it knows the public mapping.
+message ObservedAddrQuery {
+  // request_id is echoed in the response so an agent can match
+  // outstanding queries.
+  uint64 request_id = 1;
+}
+
+// FrameTypeObservedAddrResp (0x121) — relay -> agent.
+message ObservedAddrResp {
+  uint64 request_id = 1;
+  string ip         = 2;
+  uint32 port       = 3;
+}
+
+// Candidate is one possible address an agent can be reached at.
+// kind reflects RFC 8445 with a simplified label set: "host" is a
+// local interface address, "srflx" is the OBSERVED_ADDR_RESP value
+// (server-reflexive). "relay" is the existing relay endpoint and is
+// already known both sides; we don't include it here.
+message Candidate {
+  string kind     = 1; // "host" | "srflx"
+  string ip       = 2;
+  uint32 port     = 3;
+  uint32 priority = 4; // higher = prefer first
+}
+
+// FrameTypeCandidateOffer (0x122) — agent -> relay (forwarded to peer).
+// Sent on a per-stream control stream. The agent has finished
+// gathering candidates and offers them to the peer via the relay.
+message CandidateOffer {
+  uint64 stream_id          = 1;
+  repeated Candidate candidates = 2;
+}
+
+// FrameTypeCandidateAnswer (0x123) — agent -> relay (forwarded to peer).
+// The peer replies with its own candidate set.
+message CandidateAnswer {
+  uint64 stream_id          = 1;
+  repeated Candidate candidates = 2;
+}
+
+// FrameTypeMigrateToP2P (0x124) — both agents simultaneously to relay.
+// After connectivity check selects a working candidate pair, each
+// agent sends MIGRATE_TO_P2P on the in-flight stream's QUIC stream.
+// The relay closes the splice; each side opens a new direct QUIC
+// connection at the negotiated endpoint, and the in-flight stream
+// is resumed across the new path using STREAM_RESUME semantics.
+message MigrateToP2P {
+  uint64 stream_id     = 1;
+  uint64 my_position   = 2;
+  uint64 peer_ack_position = 3;
+  Candidate selected   = 4; // the pair selected as the data path
+}
+
+// FrameTypeMigrateToRelay (0x125) — agent -> relay (after P2P degrades).
+// On RTT timeout / loss spike, agents fall back to the relay path.
+// The relay restores the splice from its short-lived LRU cache.
+message MigrateToRelay {
+  uint64 stream_id          = 1;
+  uint64 my_position        = 2;
+  uint64 peer_ack_position  = 3;
+  string reason             = 4; // "rtt_timeout" | "loss_threshold" | "peer_close"
+}
+
+// FrameTypeStreamAccept (0x012) — provider-side agent -> relay.
+message StreamAccept {}
+
+// FrameTypeStreamReject (0x013) — provider-side agent -> relay.
+message StreamReject {
+  uint32 code = 1;
+  string reason = 2;
+}
