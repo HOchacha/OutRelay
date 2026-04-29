@@ -97,6 +97,25 @@ const (
 	FrameTypeForwardStream FrameType = 0x140
 )
 
+// Stream-mode signalling frames. After OPEN_STREAM / STREAM_ACCEPT,
+// the relay sends exactly one of the two frames below on each
+// agent's stream-0 control channel:
+//
+//   - StreamReady (relay_mode=splice): bytes flow over the
+//     relay-mediated stream as usual.
+//
+//   - AllocGranted (relay_mode=forward): the relay's mini-TURN UDP
+//     forwarder is in front of the data plane. Each agent sends
+//     opaque UDP packets to the forwarding endpoint with the peer's
+//     allocation id as a 4-byte big-endian prefix; the relay strips
+//     the prefix and forwards. The agents establish their own
+//     end-to-end QUIC over that path so the relay sees only
+//     ciphertext.
+const (
+	FrameTypeAllocGranted FrameType = 0x151
+	FrameTypeStreamReady  FrameType = 0x152
+)
+
 // maxType is 2^11 - 1 = 0x7FF.
 const maxType FrameType = 0x07FF
 

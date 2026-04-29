@@ -29,7 +29,7 @@ below aren't, but they make review go faster.
 - Comment **why**, not what. The code already says what it does.
 - Lead with one sentence. If you need more, follow with a short
   paragraph.
-- Don't reference design-doc section numbers (`§3.18.x`) — link to a
+- Don't reference external design-doc section numbers — link to a
   function, file, or concept the reader can actually open.
 - Don't narrate the change history (`// added for X`, `// was Y
   before`). That belongs in the commit message and rots in code.

@@ -86,9 +86,13 @@ func (s *Server) DeregisterAgent(ctx context.Context, req *pb.DeregisterAgentReq
 	return &pb.DeregisterAgentResponse{}, nil
 }
 
-// Resolve returns the provider for (tenant, service_name).
+// Resolve returns the provider for (tenant, service_name). When
+// req.CallerRegion is non-empty the store prefers a provider whose
+// relay sits in the same region — keeps cross-region traffic inside
+// the inter-relay path it's already on rather than forcing the
+// caller's relay to forward through a far-region relay.
 func (s *Server) Resolve(ctx context.Context, req *pb.ResolveRequest) (*pb.ResolveResponse, error) {
-	svc, err := s.store.ResolveService(ctx, req.Tenant, req.ServiceName)
+	svc, err := s.store.ResolveService(ctx, req.Tenant, req.ServiceName, req.CallerRegion)
 	if err != nil {
 		// Translate ErrNotFound into an empty result; callers distinguish
 		// "no provider" vs "infra failure" by err vs len(providers)==0.

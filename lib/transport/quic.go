@@ -141,9 +141,99 @@ func (s *quicStream) Read(p []byte) (int, error)  { return s.s.Read(p) }
 func (s *quicStream) Write(p []byte) (int, error) { return s.s.Write(p) }
 func (s *quicStream) Close() error                { return s.s.Close() }
 func (s *quicStream) StreamID() uint64            { return uint64(s.s.StreamID()) } // #nosec G115 -- quic.StreamID is non-negative
+func (s *quicStream) CancelRead(code uint64) {
+	s.s.CancelRead(quic.StreamErrorCode(code))
+}
 
 // CloseWrite half-closes the write side. quic-go's Stream.Close() is
 // already a write-only close (FIN); this alias lets callers
 // (splice.Bidirectional, agent bridges) discover the capability via a
 // type assertion against an interface{ CloseWrite() error }.
 func (s *quicStream) CloseWrite() error { return s.s.Close() }
+
+// DefaultDialer wraps DialQUIC behind the Dialer interface so
+// callers that don't need a shared socket pay no per-Dial setup.
+type DefaultDialer struct{}
+
+func (DefaultDialer) Dial(ctx context.Context, addr string, tlsConf *tls.Config, qcfg *quic.Config) (Conn, error) {
+	return DialQUIC(ctx, addr, tlsConf, qcfg)
+}
+
+// SharedTransport binds a single UDP socket and exposes both
+// outbound (Dial) and inbound (Listen) QUIC over it. Use one of
+// these per agent when EIM hole-punching is desired: the agent's
+// connection to the relay determines the NAT mapping for this
+// socket, srflx tells the agent that mapping, and a peer dialing
+// the mapped external endpoint lands on the SAME socket — quic-go's
+// Listen path then accepts the connection. With per-call sockets
+// (DefaultDialer + ListenQUIC) the listener and dialer have
+// different ports, so srflx-derived addresses point at the wrong
+// socket and the connectivity check never succeeds from behind a
+// NAT.
+type SharedTransport struct {
+	t   *quic.Transport
+	udp *net.UDPConn
+}
+
+// NewSharedTransport binds a UDP socket at addr (e.g. "0.0.0.0:7445")
+// and wraps it for shared client+server use. Close releases the
+// socket.
+func NewSharedTransport(addr string) (*SharedTransport, error) {
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("transport: resolve %s: %w", addr, err)
+	}
+	conn, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		return nil, fmt.Errorf("transport: bind %s: %w", addr, err)
+	}
+	return &SharedTransport{
+		t:   &quic.Transport{Conn: conn},
+		udp: conn,
+	}, nil
+}
+
+// Dial opens a QUIC connection to raddr from the shared socket.
+// The peer sees this connection as originating from the shared
+// socket's local address (post-NAT, the NAT-mapped endpoint).
+func (s *SharedTransport) Dial(ctx context.Context, raddr string, tlsConf *tls.Config, qcfg *quic.Config) (Conn, error) {
+	if tlsConf == nil {
+		return nil, errors.New("transport: tls.Config required")
+	}
+	udpAddr, err := net.ResolveUDPAddr("udp", raddr)
+	if err != nil {
+		return nil, fmt.Errorf("transport: resolve %s: %w", raddr, err)
+	}
+	tlsConf = ensureALPN(tlsConf)
+	qc, err := s.t.Dial(ctx, udpAddr, tlsConf, withDefaults(qcfg))
+	if err != nil {
+		return nil, fmt.Errorf("transport: shared dial %s: %w", raddr, err)
+	}
+	return &quicConn{conn: qc}, nil
+}
+
+// Listen starts accepting inbound QUIC connections on the shared
+// socket. Concurrent with Dial; quic-go demultiplexes by
+// connection id.
+func (s *SharedTransport) Listen(tlsConf *tls.Config, qcfg *quic.Config) (Listener, error) {
+	if tlsConf == nil {
+		return nil, errors.New("transport: tls.Config required")
+	}
+	tlsConf = ensureALPN(tlsConf)
+	ln, err := s.t.Listen(tlsConf, withDefaults(qcfg))
+	if err != nil {
+		return nil, fmt.Errorf("transport: shared listen: %w", err)
+	}
+	return &quicListener{ln: ln}, nil
+}
+
+// LocalAddr returns the bound UDP local address. Useful for
+// extracting the listener port to pair with a srflx-discovered
+// external IP.
+func (s *SharedTransport) LocalAddr() net.Addr { return s.udp.LocalAddr() }
+
+// Close releases the underlying UDP socket. Closes both the Dial-
+// originated connections and the Listen path implicitly.
+func (s *SharedTransport) Close() error {
+	return s.t.Close()
+}

@@ -55,6 +55,13 @@ message DeregisterAgentResponse {}
 message ResolveRequest {
   string tenant       = 1;
   string service_name = 2;
+  // caller_region is the region label of the relay that issued the
+  // Resolve on behalf of a consumer agent. The controller uses it
+  // to prefer providers whose relay sits in the same region —
+  // multi-region deployments avoid an unnecessary cross-region
+  // hop. Empty disables the preference and the first registered
+  // provider wins (back-compat for single-relay deployments).
+  string caller_region = 3;
 }
 
 message Provider {

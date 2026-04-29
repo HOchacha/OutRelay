@@ -70,6 +70,71 @@ func (Decision) EnumDescriptor() ([]byte, []int) {
 	return file_policy_proto_rawDescGZIP(), []int{0}
 }
 
+// RelayMode controls how the relay carries a stream's data plane.
+//
+// SPLICE (default): the relay terminates QUIC on both sides and
+//
+//	shuttles bytes via Linux splice(2). Highest CPU cost on the
+//	relay (full encrypt/decrypt per byte) but enables fine-grained
+//	inspection if ever needed and yields uniform per-stream
+//	accounting. Stream-resume and P2P-promotion paths assume this
+//	mode.
+//
+// FORWARD: the relay does NOT terminate QUIC for the data plane.
+//
+//	Each agent gets an allocation_id and sends UDP packets to the
+//	relay's forwarding port with the peer's allocation_id as a
+//	prefix. Relay reads the prefix, looks up the peer's UDP
+//	endpoint, and forwards. Agents establish their own end-to-end
+//	QUIC over this forwarded UDP path, so the relay sees only
+//	ciphertext and no QUIC encrypt/decrypt cost. Designed for
+//	bulk transfer; relay CPU drops dramatically vs SPLICE.
+type RelayMode int32
+
+const (
+	RelayMode_RELAY_MODE_SPLICE  RelayMode = 0
+	RelayMode_RELAY_MODE_FORWARD RelayMode = 1
+)
+
+// Enum value maps for RelayMode.
+var (
+	RelayMode_name = map[int32]string{
+		0: "RELAY_MODE_SPLICE",
+		1: "RELAY_MODE_FORWARD",
+	}
+	RelayMode_value = map[string]int32{
+		"RELAY_MODE_SPLICE":  0,
+		"RELAY_MODE_FORWARD": 1,
+	}
+)
+
+func (x RelayMode) Enum() *RelayMode {
+	p := new(RelayMode)
+	*p = x
+	return p
+}
+
+func (x RelayMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RelayMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_policy_proto_enumTypes[1].Descriptor()
+}
+
+func (RelayMode) Type() protoreflect.EnumType {
+	return &file_policy_proto_enumTypes[1]
+}
+
+func (x RelayMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RelayMode.Descriptor instead.
+func (RelayMode) EnumDescriptor() ([]byte, []int) {
+	return file_policy_proto_rawDescGZIP(), []int{1}
+}
+
 // P2PMode controls whether streams matching this rule are eligible
 // for P2P (direct agent-to-agent) promotion.
 type P2PMode int32
@@ -112,11 +177,11 @@ func (x P2PMode) String() string {
 }
 
 func (P2PMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_policy_proto_enumTypes[1].Descriptor()
+	return file_policy_proto_enumTypes[2].Descriptor()
 }
 
 func (P2PMode) Type() protoreflect.EnumType {
-	return &file_policy_proto_enumTypes[1]
+	return &file_policy_proto_enumTypes[2]
 }
 
 func (x P2PMode) Number() protoreflect.EnumNumber {
@@ -125,7 +190,7 @@ func (x P2PMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use P2PMode.Descriptor instead.
 func (P2PMode) EnumDescriptor() ([]byte, []int) {
-	return file_policy_proto_rawDescGZIP(), []int{1}
+	return file_policy_proto_rawDescGZIP(), []int{2}
 }
 
 type PolicyEvent_Kind int32
@@ -166,11 +231,11 @@ func (x PolicyEvent_Kind) String() string {
 }
 
 func (PolicyEvent_Kind) Descriptor() protoreflect.EnumDescriptor {
-	return file_policy_proto_enumTypes[2].Descriptor()
+	return file_policy_proto_enumTypes[3].Descriptor()
 }
 
 func (PolicyEvent_Kind) Type() protoreflect.EnumType {
-	return &file_policy_proto_enumTypes[2]
+	return &file_policy_proto_enumTypes[3]
 }
 
 func (x PolicyEvent_Kind) Number() protoreflect.EnumNumber {
@@ -193,6 +258,7 @@ type PolicyRule struct {
 	ExpiresUnixMs   int64                  `protobuf:"varint,7,opt,name=expires_unix_ms,json=expiresUnixMs,proto3" json:"expires_unix_ms,omitempty"` // 0 = never expires
 	CreatedAtUnixMs int64                  `protobuf:"varint,8,opt,name=created_at_unix_ms,json=createdAtUnixMs,proto3" json:"created_at_unix_ms,omitempty"`
 	P2PMode         P2PMode                `protobuf:"varint,9,opt,name=p2p_mode,json=p2pMode,proto3,enum=outrelay.control.v1.P2PMode" json:"p2p_mode,omitempty"`
+	RelayMode       RelayMode              `protobuf:"varint,10,opt,name=relay_mode,json=relayMode,proto3,enum=outrelay.control.v1.RelayMode" json:"relay_mode,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -288,6 +354,13 @@ func (x *PolicyRule) GetP2PMode() P2PMode {
 		return x.P2PMode
 	}
 	return P2PMode_P2P_ALLOWED
+}
+
+func (x *PolicyRule) GetRelayMode() RelayMode {
+	if x != nil {
+		return x.RelayMode
+	}
+	return RelayMode_RELAY_MODE_SPLICE
 }
 
 type AddPolicyRequest struct {
@@ -670,7 +743,7 @@ var File_policy_proto protoreflect.FileDescriptor
 
 const file_policy_proto_rawDesc = "" +
 	"\n" +
-	"\fpolicy.proto\x12\x13outrelay.control.v1\"\xf2\x02\n" +
+	"\fpolicy.proto\x12\x13outrelay.control.v1\"\xb1\x03\n" +
 	"\n" +
 	"PolicyRule\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
@@ -681,7 +754,10 @@ const file_policy_proto_rawDesc = "" +
 	"\bdecision\x18\x06 \x01(\x0e2\x1d.outrelay.control.v1.DecisionR\bdecision\x12&\n" +
 	"\x0fexpires_unix_ms\x18\a \x01(\x03R\rexpiresUnixMs\x12+\n" +
 	"\x12created_at_unix_ms\x18\b \x01(\x03R\x0fcreatedAtUnixMs\x127\n" +
-	"\bp2p_mode\x18\t \x01(\x0e2\x1c.outrelay.control.v1.P2PModeR\ap2pMode\"G\n" +
+	"\bp2p_mode\x18\t \x01(\x0e2\x1c.outrelay.control.v1.P2PModeR\ap2pMode\x12=\n" +
+	"\n" +
+	"relay_mode\x18\n" +
+	" \x01(\x0e2\x1e.outrelay.control.v1.RelayModeR\trelayMode\"G\n" +
 	"\x10AddPolicyRequest\x123\n" +
 	"\x04rule\x18\x01 \x01(\v2\x1f.outrelay.control.v1.PolicyRuleR\x04rule\"#\n" +
 	"\x11AddPolicyResponse\x12\x0e\n" +
@@ -710,7 +786,10 @@ const file_policy_proto_rawDesc = "" +
 	"\bDecision\x12\x18\n" +
 	"\x14DECISION_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eDECISION_ALLOW\x10\x01\x12\x11\n" +
-	"\rDECISION_DENY\x10\x02*?\n" +
+	"\rDECISION_DENY\x10\x02*:\n" +
+	"\tRelayMode\x12\x15\n" +
+	"\x11RELAY_MODE_SPLICE\x10\x00\x12\x16\n" +
+	"\x12RELAY_MODE_FORWARD\x10\x01*?\n" +
 	"\aP2PMode\x12\x0f\n" +
 	"\vP2P_ALLOWED\x10\x00\x12\x11\n" +
 	"\rP2P_FORBIDDEN\x10\x01\x12\x10\n" +
@@ -733,42 +812,44 @@ func file_policy_proto_rawDescGZIP() []byte {
 	return file_policy_proto_rawDescData
 }
 
-var file_policy_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_policy_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_policy_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_policy_proto_goTypes = []any{
 	(Decision)(0),                // 0: outrelay.control.v1.Decision
-	(P2PMode)(0),                 // 1: outrelay.control.v1.P2PMode
-	(PolicyEvent_Kind)(0),        // 2: outrelay.control.v1.PolicyEvent.Kind
-	(*PolicyRule)(nil),           // 3: outrelay.control.v1.PolicyRule
-	(*AddPolicyRequest)(nil),     // 4: outrelay.control.v1.AddPolicyRequest
-	(*AddPolicyResponse)(nil),    // 5: outrelay.control.v1.AddPolicyResponse
-	(*RemovePolicyRequest)(nil),  // 6: outrelay.control.v1.RemovePolicyRequest
-	(*RemovePolicyResponse)(nil), // 7: outrelay.control.v1.RemovePolicyResponse
-	(*ListPoliciesRequest)(nil),  // 8: outrelay.control.v1.ListPoliciesRequest
-	(*ListPoliciesResponse)(nil), // 9: outrelay.control.v1.ListPoliciesResponse
-	(*WatchPoliciesRequest)(nil), // 10: outrelay.control.v1.WatchPoliciesRequest
-	(*PolicyEvent)(nil),          // 11: outrelay.control.v1.PolicyEvent
+	(RelayMode)(0),               // 1: outrelay.control.v1.RelayMode
+	(P2PMode)(0),                 // 2: outrelay.control.v1.P2PMode
+	(PolicyEvent_Kind)(0),        // 3: outrelay.control.v1.PolicyEvent.Kind
+	(*PolicyRule)(nil),           // 4: outrelay.control.v1.PolicyRule
+	(*AddPolicyRequest)(nil),     // 5: outrelay.control.v1.AddPolicyRequest
+	(*AddPolicyResponse)(nil),    // 6: outrelay.control.v1.AddPolicyResponse
+	(*RemovePolicyRequest)(nil),  // 7: outrelay.control.v1.RemovePolicyRequest
+	(*RemovePolicyResponse)(nil), // 8: outrelay.control.v1.RemovePolicyResponse
+	(*ListPoliciesRequest)(nil),  // 9: outrelay.control.v1.ListPoliciesRequest
+	(*ListPoliciesResponse)(nil), // 10: outrelay.control.v1.ListPoliciesResponse
+	(*WatchPoliciesRequest)(nil), // 11: outrelay.control.v1.WatchPoliciesRequest
+	(*PolicyEvent)(nil),          // 12: outrelay.control.v1.PolicyEvent
 }
 var file_policy_proto_depIdxs = []int32{
 	0,  // 0: outrelay.control.v1.PolicyRule.decision:type_name -> outrelay.control.v1.Decision
-	1,  // 1: outrelay.control.v1.PolicyRule.p2p_mode:type_name -> outrelay.control.v1.P2PMode
-	3,  // 2: outrelay.control.v1.AddPolicyRequest.rule:type_name -> outrelay.control.v1.PolicyRule
-	3,  // 3: outrelay.control.v1.ListPoliciesResponse.rules:type_name -> outrelay.control.v1.PolicyRule
-	2,  // 4: outrelay.control.v1.PolicyEvent.kind:type_name -> outrelay.control.v1.PolicyEvent.Kind
-	3,  // 5: outrelay.control.v1.PolicyEvent.rule:type_name -> outrelay.control.v1.PolicyRule
-	4,  // 6: outrelay.control.v1.Policy.AddPolicy:input_type -> outrelay.control.v1.AddPolicyRequest
-	6,  // 7: outrelay.control.v1.Policy.RemovePolicy:input_type -> outrelay.control.v1.RemovePolicyRequest
-	8,  // 8: outrelay.control.v1.Policy.ListPolicies:input_type -> outrelay.control.v1.ListPoliciesRequest
-	10, // 9: outrelay.control.v1.Policy.Watch:input_type -> outrelay.control.v1.WatchPoliciesRequest
-	5,  // 10: outrelay.control.v1.Policy.AddPolicy:output_type -> outrelay.control.v1.AddPolicyResponse
-	7,  // 11: outrelay.control.v1.Policy.RemovePolicy:output_type -> outrelay.control.v1.RemovePolicyResponse
-	9,  // 12: outrelay.control.v1.Policy.ListPolicies:output_type -> outrelay.control.v1.ListPoliciesResponse
-	11, // 13: outrelay.control.v1.Policy.Watch:output_type -> outrelay.control.v1.PolicyEvent
-	10, // [10:14] is the sub-list for method output_type
-	6,  // [6:10] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	2,  // 1: outrelay.control.v1.PolicyRule.p2p_mode:type_name -> outrelay.control.v1.P2PMode
+	1,  // 2: outrelay.control.v1.PolicyRule.relay_mode:type_name -> outrelay.control.v1.RelayMode
+	4,  // 3: outrelay.control.v1.AddPolicyRequest.rule:type_name -> outrelay.control.v1.PolicyRule
+	4,  // 4: outrelay.control.v1.ListPoliciesResponse.rules:type_name -> outrelay.control.v1.PolicyRule
+	3,  // 5: outrelay.control.v1.PolicyEvent.kind:type_name -> outrelay.control.v1.PolicyEvent.Kind
+	4,  // 6: outrelay.control.v1.PolicyEvent.rule:type_name -> outrelay.control.v1.PolicyRule
+	5,  // 7: outrelay.control.v1.Policy.AddPolicy:input_type -> outrelay.control.v1.AddPolicyRequest
+	7,  // 8: outrelay.control.v1.Policy.RemovePolicy:input_type -> outrelay.control.v1.RemovePolicyRequest
+	9,  // 9: outrelay.control.v1.Policy.ListPolicies:input_type -> outrelay.control.v1.ListPoliciesRequest
+	11, // 10: outrelay.control.v1.Policy.Watch:input_type -> outrelay.control.v1.WatchPoliciesRequest
+	6,  // 11: outrelay.control.v1.Policy.AddPolicy:output_type -> outrelay.control.v1.AddPolicyResponse
+	8,  // 12: outrelay.control.v1.Policy.RemovePolicy:output_type -> outrelay.control.v1.RemovePolicyResponse
+	10, // 13: outrelay.control.v1.Policy.ListPolicies:output_type -> outrelay.control.v1.ListPoliciesResponse
+	12, // 14: outrelay.control.v1.Policy.Watch:output_type -> outrelay.control.v1.PolicyEvent
+	11, // [11:15] is the sub-list for method output_type
+	7,  // [7:11] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_policy_proto_init() }
@@ -781,7 +862,7 @@ func file_policy_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_policy_proto_rawDesc), len(file_policy_proto_rawDesc)),
-			NumEnums:      3,
+			NumEnums:      4,
 			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,

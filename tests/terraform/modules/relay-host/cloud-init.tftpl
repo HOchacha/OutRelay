@@ -1,0 +1,76 @@
+#!/bin/bash
+# Peer relay (no controller). Pulls the relay binary and its leaf
+# cert from S3, then runs outrelay-relay against the (cross-region)
+# controller endpoint. The relay dials the controller, registers
+# itself via UpsertRelay (id, region, advertise endpoint), and
+# subscribes to policy / opens the gRPC streams the rest of the
+# system needs.
+#
+# Variables interpolated by Terraform:
+#   bucket_name, relay_id, region_label, controller_endpoint,
+#   advertise, tenant
+
+set -eux
+
+BUCKET="${bucket_name}"
+# When bucket_region is set, force aws-cli to use that region for
+# the GETs below — the bucket lives in another region and the
+# default (instance's own region) gets a 301/PermanentRedirect on
+# first request that aws-cli on AL2023 doesn't always follow.
+%{ if bucket_region != "" ~}
+export AWS_DEFAULT_REGION="${bucket_region}"
+%{ endif ~}
+
+RELAY_ID="${relay_id}"
+REGION_LABEL="${region_label}"
+CONTROLLER="${controller_endpoint}"
+ADVERTISE="${advertise}"
+TENANT="${tenant}"
+
+OUT=/opt/outrelay
+mkdir -p $OUT/bin $OUT/pki
+
+aws s3 cp s3://$BUCKET/bin/outrelay-relay      $OUT/bin/outrelay-relay
+aws s3 cp s3://$BUCKET/pki/ca.crt              $OUT/pki/ca.crt
+aws s3 cp s3://$BUCKET/pki/relay-$RELAY_ID.crt $OUT/pki/relay.crt
+aws s3 cp s3://$BUCKET/pki/relay-$RELAY_ID.key $OUT/pki/relay.key
+chmod +x $OUT/bin/outrelay-relay
+chmod 600 $OUT/pki/*.key
+
+useradd --system --no-create-home --shell /sbin/nologin outrelay || true
+chown -R outrelay:outrelay $OUT
+
+# Unit name carries the relay id so wait-ready.sh's
+# `outrelay-<role>` mapping (where role is "relay-r2" etc.) finds
+# it. The primary control host's relay uses unit name
+# "outrelay-relay" — keeping the namespace per-relay avoids
+# collision in any host that hosts multiple.
+cat >/etc/systemd/system/outrelay-relay-$RELAY_ID.service <<EOF
+[Unit]
+Description=OutRelay relay (peer ${relay_id}, smoke test)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=outrelay
+ExecStart=$OUT/bin/outrelay-relay \\
+  --listen=0.0.0.0:7443 \\
+  --cert=$OUT/pki/relay.crt \\
+  --key=$OUT/pki/relay.key \\
+  --ca=$OUT/pki/ca.crt \\
+  --controller=$CONTROLLER \\
+  --relay-id=$RELAY_ID \\
+  --region=$REGION_LABEL \\
+  --advertise=$ADVERTISE \\
+  --tenant=$TENANT \\
+  --debug-listen= \\
+  --log-format=json
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now outrelay-relay-$RELAY_ID.service

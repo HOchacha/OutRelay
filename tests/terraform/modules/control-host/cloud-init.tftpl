@@ -1,0 +1,101 @@
+#!/bin/bash
+# cloud-init for the control host: pulls the controller and relay
+# binaries from S3, drops the dev-PKI material into /opt/outrelay,
+# and wires both as systemd units. Both daemons run on this single
+# EC2 — relay → controller hop is 127.0.0.1:7444.
+#
+# Variables interpolated by Terraform:
+#   bucket_name, advertise, tenant, relay_id
+
+set -eux
+
+BUCKET="${bucket_name}"
+ADVERTISE="${advertise}"
+TENANT="${tenant}"
+RELAY_ID="${relay_id}"
+
+OUT=/opt/outrelay
+mkdir -p $OUT/bin $OUT/pki $OUT/data
+
+# AL2023 ships awscli + ssm agent. Update awscli only if needed.
+aws --version
+
+aws s3 cp s3://$BUCKET/bin/outrelay-controller $OUT/bin/outrelay-controller
+aws s3 cp s3://$BUCKET/bin/outrelay-relay      $OUT/bin/outrelay-relay
+aws s3 cp s3://$BUCKET/bin/outrelay-cli        $OUT/bin/outrelay-cli
+chmod +x $OUT/bin/*
+
+aws s3 cp s3://$BUCKET/pki/ $OUT/pki/ --recursive
+chmod 600 $OUT/pki/*.key
+
+# Dedicated user — no shell, no home, just enough to run the daemons.
+useradd --system --no-create-home --shell /sbin/nologin outrelay || true
+chown -R outrelay:outrelay $OUT
+
+# ---- controller --------------------------------------------------------
+cat >/etc/systemd/system/outrelay-controller.service <<EOF
+[Unit]
+Description=OutRelay controller (smoke test)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=outrelay
+ExecStart=$OUT/bin/outrelay-controller \\
+  --listen=%{ if expose_controller }0.0.0.0%{ else }127.0.0.1%{ endif }:7444 \\
+  --db=$OUT/data/controller.db \\
+  --debug-listen= \\
+  --log-format=json
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ---- relay -------------------------------------------------------------
+cat >/etc/systemd/system/outrelay-relay.service <<EOF
+[Unit]
+Description=OutRelay relay (smoke test)
+After=outrelay-controller.service
+Wants=outrelay-controller.service
+
+[Service]
+Type=simple
+User=outrelay
+# CAP_NET_BIND_SERVICE so the unprivileged outrelay user can bind
+# port 443 (only matters when --listen-tcp is enabled).
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ExecStart=$OUT/bin/outrelay-relay \\
+  --listen=0.0.0.0:7443 \\
+%{ if enable_tcp_fallback ~}
+  --listen-tcp=0.0.0.0:443 \\
+%{ endif ~}
+%{ if enable_forward_plane ~}
+  --listen-forward=0.0.0.0:9443 \\
+%{ endif ~}
+  --cert=$OUT/pki/relay-$RELAY_ID.crt \\
+  --key=$OUT/pki/relay-$RELAY_ID.key \\
+  --ca=$OUT/pki/ca.crt \\
+  --controller=127.0.0.1:7444 \\
+  --relay-id=$RELAY_ID \\
+  --region=ap-northeast-2 \\
+  --advertise=$ADVERTISE \\
+  --tenant=$TENANT \\
+  --debug-listen= \\
+  --log-format=json
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now outrelay-controller.service
+# Give the controller a moment to bind 7444 before the relay tries
+# to gRPC-dial it. Without this the relay's first connect fails and
+# its restart backoff lengthens the wait-ready loop.
+sleep 3
+systemctl enable --now outrelay-relay.service

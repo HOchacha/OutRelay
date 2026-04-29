@@ -172,15 +172,24 @@ func (s *Store) RegisterService(ctx context.Context, svc Service) (string, error
 // ErrNotFound. The result includes the relay's advertised endpoint
 // via a LEFT JOIN with relay_instances; an empty RelayEndpoint
 // means the relay holding this service has not called UpsertRelay.
-func (s *Store) ResolveService(ctx context.Context, tenant, name string) (Service, error) {
+//
+// callerRegion: when non-empty, providers whose relay is in the
+// same region are preferred — multi-region deployments use this
+// to avoid an unnecessary cross-region inter-relay hop. Empty
+// disables the preference (single-relay back-compat).
+func (s *Store) ResolveService(ctx context.Context, tenant, name, callerRegion string) (Service, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT s.id, s.tenant, s.name, s.agent_uri, s.relay_id,
 		       COALESCE(s.local_addr, ''), s.health, s.updated_at_unix_ms,
 		       COALESCE(r.endpoint, '')
 		FROM services s
 		LEFT JOIN relay_instances r ON r.id = s.relay_id
-		WHERE s.tenant = ? AND s.name = ?`,
-		tenant, name)
+		WHERE s.tenant = ? AND s.name = ?
+		ORDER BY
+		  CASE WHEN ? != '' AND r.region = ? THEN 0 ELSE 1 END,
+		  s.updated_at_unix_ms DESC
+		LIMIT 1`,
+		tenant, name, callerRegion, callerRegion)
 	var svc Service
 	err := row.Scan(&svc.ID, &svc.Tenant, &svc.Name, &svc.AgentURI, &svc.RelayID,
 		&svc.LocalAddr, &svc.Health, &svc.UpdatedAtUnixMs, &svc.RelayEndpoint)

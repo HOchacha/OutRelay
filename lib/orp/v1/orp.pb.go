@@ -1049,6 +1049,131 @@ func (x *StreamReject) GetReason() string {
 	return ""
 }
 
+// FrameTypeAllocGranted (0x151) — relay -> agent (control stream).
+// Sent when policy resolves to relay_mode=forward. Tells the agent
+// its own allocation_id, the peer's allocation_id (the prefix it
+// must put on outbound packets), and the relay's UDP forwarding
+// endpoint (host:port). The agent then opens a UDP socket to that
+// endpoint, sends a registration packet, and runs end-to-end QUIC
+// over the resulting path. See StreamReady below — every stream
+// open produces exactly one of {StreamReady, AllocGranted}.
+type AllocGranted struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	StreamId        uint64                 `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	MyAllocation    uint32                 `protobuf:"varint,2,opt,name=my_allocation,json=myAllocation,proto3" json:"my_allocation,omitempty"`
+	PeerAllocation  uint32                 `protobuf:"varint,3,opt,name=peer_allocation,json=peerAllocation,proto3" json:"peer_allocation,omitempty"`
+	ForwardEndpoint string                 `protobuf:"bytes,4,opt,name=forward_endpoint,json=forwardEndpoint,proto3" json:"forward_endpoint,omitempty"` // host:port the agent sends UDP to
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *AllocGranted) Reset() {
+	*x = AllocGranted{}
+	mi := &file_orp_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AllocGranted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AllocGranted) ProtoMessage() {}
+
+func (x *AllocGranted) ProtoReflect() protoreflect.Message {
+	mi := &file_orp_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AllocGranted.ProtoReflect.Descriptor instead.
+func (*AllocGranted) Descriptor() ([]byte, []int) {
+	return file_orp_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AllocGranted) GetStreamId() uint64 {
+	if x != nil {
+		return x.StreamId
+	}
+	return 0
+}
+
+func (x *AllocGranted) GetMyAllocation() uint32 {
+	if x != nil {
+		return x.MyAllocation
+	}
+	return 0
+}
+
+func (x *AllocGranted) GetPeerAllocation() uint32 {
+	if x != nil {
+		return x.PeerAllocation
+	}
+	return 0
+}
+
+func (x *AllocGranted) GetForwardEndpoint() string {
+	if x != nil {
+		return x.ForwardEndpoint
+	}
+	return ""
+}
+
+// FrameTypeStreamReady (0x152) — relay -> agent (control stream).
+// Sent when policy resolves to relay_mode=splice, right before the
+// relay starts splicing. Tells the agent the relay-mediated data
+// path is up, so it can stop waiting on AllocGranted and bridge
+// bytes on the data stream.
+type StreamReady struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StreamId      uint64                 `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamReady) Reset() {
+	*x = StreamReady{}
+	mi := &file_orp_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamReady) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamReady) ProtoMessage() {}
+
+func (x *StreamReady) ProtoReflect() protoreflect.Message {
+	mi := &file_orp_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamReady.ProtoReflect.Descriptor instead.
+func (*StreamReady) Descriptor() ([]byte, []int) {
+	return file_orp_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *StreamReady) GetStreamId() uint64 {
+	if x != nil {
+		return x.StreamId
+	}
+	return 0
+}
+
 var File_orp_proto protoreflect.FileDescriptor
 
 const file_orp_proto_rawDesc = "" +
@@ -1128,7 +1253,14 @@ const file_orp_proto_rawDesc = "" +
 	"\fStreamAccept\":\n" +
 	"\fStreamReject\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reasonB.Z,github.com/boanlab/OutRelay/lib/orp/v1;orpv1b\x06proto3"
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xa4\x01\n" +
+	"\fAllocGranted\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\x04R\bstreamId\x12#\n" +
+	"\rmy_allocation\x18\x02 \x01(\rR\fmyAllocation\x12'\n" +
+	"\x0fpeer_allocation\x18\x03 \x01(\rR\x0epeerAllocation\x12)\n" +
+	"\x10forward_endpoint\x18\x04 \x01(\tR\x0fforwardEndpoint\"*\n" +
+	"\vStreamReady\x12\x1b\n" +
+	"\tstream_id\x18\x01 \x01(\x04R\bstreamIdB.Z,github.com/boanlab/OutRelay/lib/orp/v1;orpv1b\x06proto3"
 
 var (
 	file_orp_proto_rawDescOnce sync.Once
@@ -1142,7 +1274,7 @@ func file_orp_proto_rawDescGZIP() []byte {
 	return file_orp_proto_rawDescData
 }
 
-var file_orp_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_orp_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_orp_proto_goTypes = []any{
 	(*Hello)(nil),             // 0: outrelay.orp.v1.Hello
 	(*HelloAck)(nil),          // 1: outrelay.orp.v1.HelloAck
@@ -1161,6 +1293,8 @@ var file_orp_proto_goTypes = []any{
 	(*MigrateToRelay)(nil),    // 14: outrelay.orp.v1.MigrateToRelay
 	(*StreamAccept)(nil),      // 15: outrelay.orp.v1.StreamAccept
 	(*StreamReject)(nil),      // 16: outrelay.orp.v1.StreamReject
+	(*AllocGranted)(nil),      // 17: outrelay.orp.v1.AllocGranted
+	(*StreamReady)(nil),       // 18: outrelay.orp.v1.StreamReady
 }
 var file_orp_proto_depIdxs = []int32{
 	10, // 0: outrelay.orp.v1.CandidateOffer.candidates:type_name -> outrelay.orp.v1.Candidate
@@ -1184,7 +1318,7 @@ func file_orp_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orp_proto_rawDesc), len(file_orp_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

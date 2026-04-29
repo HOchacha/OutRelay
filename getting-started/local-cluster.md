@@ -74,9 +74,9 @@ flags without templating.
 kubectl apply -f OutRelay/deployments/00-namespace.yaml
 kubectl apply -f .dev-pki/secrets.yaml
 kubectl apply -f OutRelay/deployments/10-outrelay-controller.yaml
-kubectl apply -f outrelay-relay/deployments/20-relay.yaml
-kubectl apply -f outrelay-agent/deployments/30-provider.yaml
-kubectl apply -f outrelay-agent/deployments/40-consumer.yaml
+kubectl apply -f outrelay-relay/deployments/20-outrelay-relay.yaml
+kubectl apply -f outrelay-agent/deployments/30-outrelay-provider.yaml
+kubectl apply -f outrelay-agent/deployments/40-outrelay-consumer.yaml
 ```
 
 Confirm everything is `Running`:

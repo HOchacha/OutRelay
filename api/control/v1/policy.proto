@@ -24,6 +24,28 @@ enum Decision {
   DECISION_DENY = 2;
 }
 
+// RelayMode controls how the relay carries a stream's data plane.
+//
+// SPLICE (default): the relay terminates QUIC on both sides and
+//   shuttles bytes via Linux splice(2). Highest CPU cost on the
+//   relay (full encrypt/decrypt per byte) but enables fine-grained
+//   inspection if ever needed and yields uniform per-stream
+//   accounting. Stream-resume and P2P-promotion paths assume this
+//   mode.
+//
+// FORWARD: the relay does NOT terminate QUIC for the data plane.
+//   Each agent gets an allocation_id and sends UDP packets to the
+//   relay's forwarding port with the peer's allocation_id as a
+//   prefix. Relay reads the prefix, looks up the peer's UDP
+//   endpoint, and forwards. Agents establish their own end-to-end
+//   QUIC over this forwarded UDP path, so the relay sees only
+//   ciphertext and no QUIC encrypt/decrypt cost. Designed for
+//   bulk transfer; relay CPU drops dramatically vs SPLICE.
+enum RelayMode {
+  RELAY_MODE_SPLICE  = 0;
+  RELAY_MODE_FORWARD = 1;
+}
+
 // P2PMode controls whether streams matching this rule are eligible
 // for P2P (direct agent-to-agent) promotion.
 enum P2PMode {
@@ -49,6 +71,7 @@ message PolicyRule {
   int64 expires_unix_ms  = 7; // 0 = never expires
   int64 created_at_unix_ms = 8;
   P2PMode p2p_mode       = 9;
+  RelayMode relay_mode   = 10;
 }
 
 message AddPolicyRequest {

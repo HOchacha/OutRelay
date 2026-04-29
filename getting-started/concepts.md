@@ -144,6 +144,50 @@ P2P is governed by the rule's `p2p_mode`:
 
 See `api/orp/v1/orp.proto` for the frame definitions.
 
+## Relay mode: splice vs forward (mini-TURN)
+
+Each policy rule also carries a `relay_mode`:
+
+- `RELAY_MODE_SPLICE` (default) — the relay terminates QUIC on both
+  halves and splices bytes between them. Bytes flow through the
+  relay as plaintext.
+- `RELAY_MODE_FORWARD` — the relay's mini-TURN UDP forwarding plane
+  carries opaque packets. Each agent registers an allocation,
+  prefixes outbound packets with the peer's allocation id, and runs
+  end-to-end QUIC over the forwarded path. The relay sees only
+  ciphertext and skips QUIC encrypt/decrypt on the data plane.
+
+After `OPEN_STREAM` and `STREAM_ACCEPT`, the relay sends each agent
+exactly one of `STREAM_READY` (splice mode) or `ALLOC_GRANTED`
+(forward mode) on the agent's stream-0 control channel, so both
+sides know which data path to use without polling. The forwarding
+plane is enabled by starting the relay with `--listen-forward`.
+
+## TCP/443 fallback
+
+For environments that block outbound UDP (corporate firewalls,
+restricted egress, some mobile networks), the relay can also listen
+on TCP/443 with a yamux-multiplexed transport. The agent enables
+this with `--relay-tcp` and falls over to it transparently when its
+QUIC dial fails. Wire frames and stream IDs are unchanged; only the
+underlying transport differs. P2P promotion is disabled on the TCP
+path because hole-punching is moot when UDP is blocked.
+
+## Multi-region and inter-relay forwarding
+
+Each relay self-registers with the controller, including a region
+tag. Agents can be configured with several relay endpoints
+(`--relay r1.example,r2.example`) and pick the lower-RTT one via a
+happy-eyeballs concurrent dial. The controller's `Resolve` orders
+provider candidates so the caller's region matches first.
+
+When a stream resolves to a provider connected to a *different*
+relay, the local relay opens a peer-relay forwarding QUIC connection
+(see `outrelay-relay/pkg/intra`) and delegates the stream with a
+`FORWARD_STREAM` frame. The peer relay completes the second half of
+the splice, so cross-region traffic still terminates on a single
+end-to-end path.
+
 ## Observability
 
 The shared `lib/observe` package provides counters, gauges, and

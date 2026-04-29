@@ -167,3 +167,27 @@ message StreamReject {
   uint32 code = 1;
   string reason = 2;
 }
+
+// FrameTypeAllocGranted (0x151) — relay -> agent (control stream).
+// Sent when policy resolves to relay_mode=forward. Tells the agent
+// its own allocation_id, the peer's allocation_id (the prefix it
+// must put on outbound packets), and the relay's UDP forwarding
+// endpoint (host:port). The agent then opens a UDP socket to that
+// endpoint, sends a registration packet, and runs end-to-end QUIC
+// over the resulting path. See StreamReady below — every stream
+// open produces exactly one of {StreamReady, AllocGranted}.
+message AllocGranted {
+  uint64 stream_id          = 1;
+  uint32 my_allocation      = 2;
+  uint32 peer_allocation    = 3;
+  string forward_endpoint   = 4; // host:port the agent sends UDP to
+}
+
+// FrameTypeStreamReady (0x152) — relay -> agent (control stream).
+// Sent when policy resolves to relay_mode=splice, right before the
+// relay starts splicing. Tells the agent the relay-mediated data
+// path is up, so it can stop waiting on AllocGranted and bridge
+// bytes on the data stream.
+message StreamReady {
+  uint64 stream_id = 1;
+}

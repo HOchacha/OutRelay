@@ -287,9 +287,16 @@ func (*DeregisterAgentResponse) Descriptor() ([]byte, []int) {
 }
 
 type ResolveRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tenant        string                 `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	ServiceName   string                 `protobuf:"bytes,2,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Tenant      string                 `protobuf:"bytes,1,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	ServiceName string                 `protobuf:"bytes,2,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	// caller_region is the region label of the relay that issued the
+	// Resolve on behalf of a consumer agent. The controller uses it
+	// to prefer providers whose relay sits in the same region —
+	// multi-region deployments avoid an unnecessary cross-region
+	// hop. Empty disables the preference and the first registered
+	// provider wins (back-compat for single-relay deployments).
+	CallerRegion  string `protobuf:"bytes,3,opt,name=caller_region,json=callerRegion,proto3" json:"caller_region,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -334,6 +341,13 @@ func (x *ResolveRequest) GetTenant() string {
 func (x *ResolveRequest) GetServiceName() string {
 	if x != nil {
 		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *ResolveRequest) GetCallerRegion() string {
+	if x != nil {
+		return x.CallerRegion
 	}
 	return ""
 }
@@ -698,10 +712,11 @@ const file_registry_proto_rawDesc = "" +
 	"\x06tenant\x18\x01 \x01(\tR\x06tenant\x12\x1b\n" +
 	"\tagent_uri\x18\x02 \x01(\tR\bagentUri\x12\x19\n" +
 	"\brelay_id\x18\x03 \x01(\tR\arelayId\"\x19\n" +
-	"\x17DeregisterAgentResponse\"K\n" +
+	"\x17DeregisterAgentResponse\"p\n" +
 	"\x0eResolveRequest\x12\x16\n" +
 	"\x06tenant\x18\x01 \x01(\tR\x06tenant\x12!\n" +
-	"\fservice_name\x18\x02 \x01(\tR\vserviceName\"\xd4\x01\n" +
+	"\fservice_name\x18\x02 \x01(\tR\vserviceName\x12#\n" +
+	"\rcaller_region\x18\x03 \x01(\tR\fcallerRegion\"\xd4\x01\n" +
 	"\bProvider\x12\x1d\n" +
 	"\n" +
 	"service_id\x18\x01 \x01(\tR\tserviceId\x12\x1b\n" +

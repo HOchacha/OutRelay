@@ -49,8 +49,8 @@ spec:
         fsGroup: 65532
       containers:
         - name: controller
-          image: docker.io/boanlab/outrelay-controller:latest
-          imagePullPolicy: IfNotPresent
+          image: docker.io/library/outrelay-controller:dev
+          imagePullPolicy: Never
           args:
             - --listen=0.0.0.0:7444
             - --db=/data/outrelay-controller.db

@@ -12,6 +12,8 @@ import (
 	"crypto/tls"
 	"io"
 	"net"
+
+	"github.com/quic-go/quic-go"
 )
 
 // tlsConnectionState is an alias so the Conn interface doesn't have
@@ -56,6 +58,17 @@ type Stream interface {
 	// StreamID is the QUIC stream id; stable for the lifetime of the
 	// stream. ORP reserves id 0 for control.
 	StreamID() uint64
+
+	// CancelRead aborts the read side. Any in-flight Read call
+	// returns an error and subsequent reads return immediately.
+	// The peer is signaled (QUIC STOP_SENDING) so it stops sending
+	// further bytes on this stream. Used by P2P migration to
+	// unblock a bridge parked on a relay-mediated stream after
+	// SwapInner has installed the new direct stream — without
+	// this hook, the parked Read keeps the bridge listening on
+	// the wrong transport indefinitely. code is a transport-
+	// specific error code surfaced to the peer's read error.
+	CancelRead(code uint64)
 }
 
 // Listener accepts incoming Conns.
@@ -63,4 +76,15 @@ type Listener interface {
 	Accept(ctx context.Context) (Conn, error)
 	Addr() net.Addr
 	Close() error
+}
+
+// Dialer abstracts "open a Conn to addr" so callers (Session.Dial,
+// Session.Reconnect, p2p connectivity check) can swap in a shared
+// UDP socket — necessary for EIM hole-punching, where the outbound
+// QUIC connection's NAT mapping must be the same external endpoint
+// a peer dials in to. The default implementation (DefaultDialer)
+// opens a fresh UDP socket per Dial; SharedTransport reuses one
+// socket across all Dial / Listen calls.
+type Dialer interface {
+	Dial(ctx context.Context, addr string, tlsConf *tls.Config, qcfg *quic.Config) (Conn, error)
 }

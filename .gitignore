@@ -24,3 +24,15 @@ vendor/
 # Dev-only PKI bootstrap (CA private key + leaf certs).
 # Regenerate via `make dev-pki`; never commit.
 /.dev-pki/
+
+# Terraform working state (cloud smoke harness under tests/terraform/).
+# State files contain sensitive cloud identifiers; never commit.
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+tests/terraform/.artifacts/
+
+# Built smoke-pki helper (compiled from tests/terraform/scripts/smoke-pki/).
+# build-binaries.sh regenerates via `go run` on every smoke run.
+tests/terraform/smoke-pki

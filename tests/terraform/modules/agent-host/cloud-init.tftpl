@@ -1,0 +1,170 @@
+#!/bin/bash
+# cloud-init for an agent host. Same shape regardless of provider /
+# consumer / EIP-or-NAT — the role string is what selects the unit
+# name and the agent CLI flags.
+#
+# Variables interpolated by Terraform:
+#   bucket_name, role, relay_endpoint, tenant, agent_uuid,
+#   cert_prefix, agent_mode, service_name, consume_bind_addr,
+#   extra_consumes (list)
+
+set -eux
+
+BUCKET="${bucket_name}"
+%{ if bucket_region != "" ~}
+export AWS_DEFAULT_REGION="${bucket_region}"
+%{ endif ~}
+
+ROLE="${role}"
+RELAY="${relay_endpoint}"
+RELAY_TCP="${relay_tcp_endpoint}"
+TENANT="${tenant}"
+UUID="${agent_uuid}"
+CERT_PREFIX="${cert_prefix}"
+MODE="${agent_mode}"
+SVC="${service_name}"
+CONSUME_BIND="${consume_bind_addr}"
+
+OUT=/opt/outrelay
+mkdir -p $OUT/bin $OUT/pki
+
+aws s3 cp s3://$BUCKET/bin/outrelay-agent $OUT/bin/outrelay-agent
+chmod +x $OUT/bin/outrelay-agent
+
+aws s3 cp s3://$BUCKET/pki/ca.crt              $OUT/pki/ca.crt
+aws s3 cp s3://$BUCKET/pki/$CERT_PREFIX.crt    $OUT/pki/agent.crt
+aws s3 cp s3://$BUCKET/pki/$CERT_PREFIX.key    $OUT/pki/agent.key
+chmod 600 $OUT/pki/*.key
+
+useradd --system --no-create-home --shell /sbin/nologin outrelay || true
+chown -R outrelay:outrelay $OUT
+
+# Provider-only: a tiny HTTP echo server bound to 127.0.0.1:8080.
+# / responds immediately; /slow holds the connection open for 8s
+# before answering. The slow path is what assertion 06 uses to
+# keep a stream alive long enough for §3.19 promotion to complete
+# OFFER → ANSWER → connectivity check → MigrateToDirect; sub-100ms
+# requests like assertion 01 finish before the relay can route the
+# OFFER, by design (a stream's pair entry is forgotten on close).
+if [ "$MODE" = "provider" ]; then
+  mkdir -p /var/lib/outrelay-echo
+
+  cat >/var/lib/outrelay-echo/server.py <<PYEOF
+import http.server, sys, time
+
+ROLE = sys.argv[1]
+BODY_FAST = ("ok from " + ROLE).encode()
+BODY_SLOW = ("ok-slow from " + ROLE).encode()
+
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a, **k):
+        return
+    def do_GET(self):
+        if self.path.startswith("/slow"):
+            time.sleep(8)
+            body = BODY_SLOW
+        else:
+            body = BODY_FAST
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+http.server.HTTPServer(("127.0.0.1", 8080), H).serve_forever()
+PYEOF
+
+  cat >/etc/systemd/system/outrelay-echo.service <<EOF
+[Unit]
+Description=OutRelay smoke echo HTTP server
+After=network-online.target
+
+[Service]
+Type=simple
+User=outrelay
+ExecStart=/usr/bin/python3 /var/lib/outrelay-echo/server.py $ROLE
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now outrelay-echo.service
+fi
+
+# Build the agent CLI argument list. provider takes
+# --expose-service / --expose-target; consumer takes --consume
+# (one or more).
+ARGS=(
+  "--relay=$RELAY"
+  "--cert=$OUT/pki/agent.crt"
+  "--key=$OUT/pki/agent.key"
+  "--ca=$OUT/pki/ca.crt"
+  "--uri=outrelay://$TENANT/agent/$UUID"
+  "--intercept=explicit"
+  # Dev PKI puts DNSNames=["localhost"] on every leaf (see
+  # pkg/pki/ca.go:121), so the agent's TLS ServerName must match —
+  # the relay endpoint host (an EIP) is *not* present as a SAN.
+  "--server-name=localhost"
+  # §3.19 Phase 2: every agent stands up its direct-dial listener on
+  # 7445. Reachability is what differs between roles — provider-eip's
+  # SG opens UDP 1024-65535 inbound, so its host candidates are dialable
+  # by peers; provider-nat / consumer have no inbound rules, so their
+  # candidates never lead to a successful connectivity check (which is
+  # exactly what the §3.19 negative path tests).
+  "--p2p-listen=0.0.0.0:7445"
+  "--log-format=json"
+)
+
+# When relay_tcp_endpoint is set, append --relay-tcp so the agent
+# falls back to TCP+TLS+yamux if every --relay (UDP/QUIC) endpoint
+# fails. The smoke variant for assertion 09 sets --relay to a
+# .invalid host so QUIC dial fails fast (DNS NXDOMAIN per RFC 6761)
+# and the fallback path is exercised deterministically.
+if [ -n "$RELAY_TCP" ]; then
+  ARGS+=("--relay-tcp=$RELAY_TCP")
+fi
+
+# §3.19 srflx auto-discovery (the agent runs OBSERVED_ADDR_QUERY
+# against the relay before EnableP2P) means no manual advertise
+# is needed in the smoke topology — the EIP-attached provider's
+# external IP comes back from the relay's view of its outbound
+# QUIC connection. p2p_advertise stays plumbed as a manual
+# override but the smoke test no longer sets it.
+%{ if p2p_advertise != "" ~}
+ARGS+=("--p2p-advertise=${p2p_advertise}")
+%{ endif ~}
+
+if [ "$MODE" = "provider" ]; then
+  ARGS+=("--expose-service=$SVC" "--expose-target=127.0.0.1:8080")
+else
+  ARGS+=("--consume=$SVC@$CONSUME_BIND")
+%{ for c in extra_consumes ~}
+  ARGS+=("--consume=${c}")
+%{ endfor ~}
+fi
+
+# systemd needs the ExecStart on a single line — render it.
+EXEC="$OUT/bin/outrelay-agent $${ARGS[*]}"
+
+cat >/etc/systemd/system/outrelay-$ROLE.service <<EOF
+[Unit]
+Description=OutRelay agent ($ROLE)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=outrelay
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ExecStart=$EXEC
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now outrelay-$ROLE.service
