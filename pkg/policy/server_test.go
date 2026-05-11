@@ -27,7 +27,7 @@ func startCtrl(t *testing.T) pb.PolicyClient {
 		t.Fatal(err)
 	}
 	gs := grpc.NewServer()
-	pb.RegisterPolicyServer(gs, policy.New(st))
+	pb.RegisterPolicyServer(gs, policy.New(st, nil))
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -27,7 +27,7 @@ func startServer(t *testing.T, ctx context.Context, dsn string) (string, *store.
 	}
 
 	gs := grpc.NewServer()
-	pb.RegisterRegistryServer(gs, registry.New(st))
+	pb.RegisterRegistryServer(gs, registry.New(st, nil))
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

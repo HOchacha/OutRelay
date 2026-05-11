@@ -44,6 +44,7 @@ func main() {
 		dsn         = flag.String("db", "outrelay-controller.db", "SQLite DSN (use ':memory:' for tests)")
 		debugListen = flag.String("debug-listen", "127.0.0.1:9101", "localhost-only debug HTTP (/debug/metrics, /debug/pprof). Empty disables.")
 		logFormat   = flag.String("log-format", "text", "log format: text or json")
+		logLevel    = flag.String("log-level", "info", "log level: debug, info, warn, error")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
@@ -52,7 +53,7 @@ func main() {
 		return
 	}
 
-	logger := newLogger(*logFormat)
+	logger := newLogger(*logFormat, *logLevel)
 
 	ctx, cancel := signalContext()
 	defer cancel()
@@ -74,9 +75,9 @@ func main() {
 	}
 
 	srv := grpc.NewServer()
-	pb.RegisterRegistryServer(srv, registry.New(st))
-	pb.RegisterPolicyServer(srv, policy.New(st))
-	pb.RegisterAuditServer(srv, audit.New(st, obsReg))
+	pb.RegisterRegistryServer(srv, registry.New(st, logger))
+	pb.RegisterPolicyServer(srv, policy.New(st, logger))
+	pb.RegisterAuditServer(srv, audit.New(st, obsReg, logger))
 
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
@@ -87,7 +88,9 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
+		logger.Info("controller: graceful stop starting")
 		srv.GracefulStop()
+		logger.Info("controller: graceful stop complete")
 	}()
 	if err := srv.Serve(ln); err != nil {
 		logger.Error("serve", "err", err)
@@ -95,14 +98,28 @@ func main() {
 	}
 }
 
-func newLogger(format string) *slog.Logger {
+func newLogger(format, level string) *slog.Logger {
+	opts := &slog.HandlerOptions{Level: parseLogLevel(level)}
 	var h slog.Handler
 	if format == "json" {
-		h = slog.NewJSONHandler(os.Stderr, nil)
+		h = slog.NewJSONHandler(os.Stderr, opts)
 	} else {
-		h = slog.NewTextHandler(os.Stderr, nil)
+		h = slog.NewTextHandler(os.Stderr, opts)
 	}
 	return slog.New(h)
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 func signalContext() (context.Context, context.CancelFunc) {
