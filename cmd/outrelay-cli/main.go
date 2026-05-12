@@ -52,7 +52,7 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `outrelay-cli — operator interface to outrelay-controller
 
-  outrelay-cli policy add    --tenant T --caller P --target P [--method P] --decision allow|deny [--expires DURATION]
+  outrelay-cli policy add    --tenant T --caller P --target P [--method P] --decision allow|deny [--expires DURATION] [--p2p-mode allowed|forbidden|required]
   outrelay-cli policy list   --tenant T
   outrelay-cli policy remove --tenant T --id ID
   outrelay-cli audit  query  --tenant T [--caller P] [--target P] [--since DUR] [--limit N]
@@ -89,6 +89,7 @@ func policyAdd(args []string) {
 	method := fs.String("method", "", "method pattern (optional)")
 	decision := fs.String("decision", "", "allow | deny")
 	expires := fs.Duration("expires", 0, "TTL from now (e.g. 24h); 0 = never")
+	p2pMode := fs.String("p2p-mode", "", "allowed | forbidden | required (default: allowed)")
 	_ = fs.Parse(args)
 
 	if *tenant == "" || *caller == "" || *target == "" || *decision == "" {
@@ -98,6 +99,11 @@ func policyAdd(args []string) {
 	dec := pb.Decision_DECISION_ALLOW
 	if strings.EqualFold(*decision, "deny") {
 		dec = pb.Decision_DECISION_DENY
+	}
+	p2p, ok := parseP2PMode(*p2pMode)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "policy add: invalid --p2p-mode (allowed|forbidden|required)")
+		os.Exit(2)
 	}
 	var expiresMs int64
 	if *expires > 0 {
@@ -117,6 +123,7 @@ func policyAdd(args []string) {
 			MethodPattern: *method,
 			Decision:      dec,
 			ExpiresUnixMs: expiresMs,
+			P2PMode:       p2p,
 		},
 	})
 	if err != nil {
@@ -154,8 +161,8 @@ func policyList(args []string) {
 		if r.ExpiresUnixMs > 0 {
 			expires = time.UnixMilli(r.ExpiresUnixMs).Format(time.RFC3339)
 		}
-		fmt.Printf("%s\t%s -> %s (%s)\tmethod=%q\texpires=%s\n",
-			r.Id, r.CallerPattern, r.TargetPattern, decision, r.MethodPattern, expires)
+		fmt.Printf("%s\t%s -> %s (%s)\tmethod=%q\tp2p=%s\texpires=%s\n",
+			r.Id, r.CallerPattern, r.TargetPattern, decision, r.MethodPattern, p2pModeString(r.P2PMode), expires)
 	}
 }
 
@@ -246,4 +253,26 @@ func dial(addr string) *grpc.ClientConn {
 		os.Exit(1)
 	}
 	return cc
+}
+
+func parseP2PMode(s string) (pb.P2PMode, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "allowed", "allow", "p2p_allowed":
+		return pb.P2PMode_P2P_ALLOWED, true
+	case "forbidden", "forbid", "deny", "p2p_forbidden":
+		return pb.P2PMode_P2P_FORBIDDEN, true
+	case "required", "require", "p2p_required":
+		return pb.P2PMode_P2P_REQUIRED, true
+	}
+	return pb.P2PMode_P2P_ALLOWED, false
+}
+
+func p2pModeString(m pb.P2PMode) string {
+	switch m {
+	case pb.P2PMode_P2P_FORBIDDEN:
+		return "forbidden"
+	case pb.P2PMode_P2P_REQUIRED:
+		return "required"
+	}
+	return "allowed"
 }
