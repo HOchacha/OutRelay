@@ -232,6 +232,22 @@ func (s *SharedTransport) Listen(tlsConf *tls.Config, qcfg *quic.Config) (Listen
 // external IP.
 func (s *SharedTransport) LocalAddr() net.Addr { return s.udp.LocalAddr() }
 
+// WriteTo sends a raw UDP datagram to addr from the shared socket,
+// bypassing the QUIC layer. Intended for NAT hole-punching warmup
+// on the responder side: a 1-byte payload pre-registers an outbound
+// conntrack entry on this side's NAT so the initiator's subsequent
+// QUIC dial (a NEW connection from a different src) matches the
+// reply tuple and traverses port-restricted NAT instead of being
+// dropped. The remote peer will discard the payload — quic-go drops
+// non-QUIC datagrams at the demuxer.
+//
+// Safe to call concurrently with Dial / Listen / quic-go's own reads
+// of the shared socket; net.UDPConn satisfies WriteTo's concurrent-use
+// guarantee.
+func (s *SharedTransport) WriteTo(p []byte, addr net.Addr) (int, error) {
+	return s.udp.WriteTo(p, addr)
+}
+
 // Close releases the underlying UDP socket. Closes both the Dial-
 // originated connections and the Listen path implicitly.
 func (s *SharedTransport) Close() error {
