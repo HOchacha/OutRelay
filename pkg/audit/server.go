@@ -66,7 +66,7 @@ func (s *Server) Record(ctx context.Context, req *pb.RecordAuditRequest) (*pb.Re
 	s.logger.Debug("audit: event recorded",
 		"tenant", ev.Tenant, "caller", ev.Caller, "target", ev.Target,
 		"method", ev.Method, "decision", decisionString(ev.Decision),
-		"stream_id", ev.StreamId)
+		"stream_id", ev.StreamId, "reason", ev.Reason)
 	return &pb.RecordAuditResponse{}, nil
 }
 

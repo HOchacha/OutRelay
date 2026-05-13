@@ -117,12 +117,14 @@ func (s *Server) RemovePolicy(ctx context.Context, req *pb.RemovePolicyRequest) 
 func (s *Server) ListPolicies(ctx context.Context, req *pb.ListPoliciesRequest) (*pb.ListPoliciesResponse, error) {
 	rows, err := s.store.ListPolicies(ctx, req.Tenant)
 	if err != nil {
+		s.logger.Warn("policy: list store failed", "tenant", req.Tenant, "err", err)
 		return nil, err
 	}
 	out := make([]*pb.PolicyRule, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, toPB(r))
 	}
+	s.logger.Debug("policy: list served", "tenant", req.Tenant, "rule_count", len(out))
 	return &pb.ListPoliciesResponse{Rules: out}, nil
 }
 
