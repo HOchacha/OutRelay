@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS policies (
   decision            TEXT NOT NULL CHECK(decision IN ('allow','deny')),
   expires_unix_ms     INTEGER NOT NULL DEFAULT 0,
   created_at_unix_ms  INTEGER NOT NULL,
-  p2p_mode            TEXT NOT NULL DEFAULT 'allowed' CHECK(p2p_mode IN ('allowed','forbidden','required'))
+  p2p_mode            TEXT NOT NULL DEFAULT 'allowed' CHECK(p2p_mode IN ('allowed','forbidden','required')),
+  relay_mode          TEXT NOT NULL DEFAULT 'splice' CHECK(relay_mode IN ('splice','forward'))
 );
 CREATE INDEX IF NOT EXISTS idx_policies_tenant ON policies(tenant);
 
@@ -273,6 +274,7 @@ type Policy struct {
 	ExpiresUnixMs   int64  // 0 = no expiry
 	CreatedAtUnixMs int64
 	P2PMode         string // "allowed" | "forbidden" | "required" (default "allowed")
+	RelayMode       string // "splice" | "forward" (default "splice")
 }
 
 // AddPolicy inserts a new policy. id may be empty; the caller usually
@@ -284,10 +286,13 @@ func (s *Store) AddPolicy(ctx context.Context, p Policy) error {
 	if p.P2PMode == "" {
 		p.P2PMode = "allowed"
 	}
+	if p.RelayMode == "" {
+		p.RelayMode = "splice"
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO policies(id, tenant, caller_pattern, target_pattern, method_pattern, decision, expires_unix_ms, created_at_unix_ms, p2p_mode)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Tenant, p.CallerPattern, p.TargetPattern, p.MethodPattern, p.Decision, p.ExpiresUnixMs, p.CreatedAtUnixMs, p.P2PMode)
+		INSERT INTO policies(id, tenant, caller_pattern, target_pattern, method_pattern, decision, expires_unix_ms, created_at_unix_ms, p2p_mode, relay_mode)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Tenant, p.CallerPattern, p.TargetPattern, p.MethodPattern, p.Decision, p.ExpiresUnixMs, p.CreatedAtUnixMs, p.P2PMode, p.RelayMode)
 	if err != nil {
 		return fmt.Errorf("store: add policy: %w", err)
 	}
@@ -311,7 +316,7 @@ func (s *Store) RemovePolicy(ctx context.Context, tenant, id string) (bool, erro
 // relays consume the full list at startup via Watch.
 func (s *Store) ListPolicies(ctx context.Context, tenant string) ([]Policy, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, tenant, caller_pattern, target_pattern, method_pattern, decision, expires_unix_ms, created_at_unix_ms, p2p_mode
+		SELECT id, tenant, caller_pattern, target_pattern, method_pattern, decision, expires_unix_ms, created_at_unix_ms, p2p_mode, relay_mode
 		FROM policies
 		WHERE tenant = ?
 		ORDER BY created_at_unix_ms`,
@@ -323,7 +328,7 @@ func (s *Store) ListPolicies(ctx context.Context, tenant string) ([]Policy, erro
 	var out []Policy
 	for rows.Next() {
 		var p Policy
-		if err := rows.Scan(&p.ID, &p.Tenant, &p.CallerPattern, &p.TargetPattern, &p.MethodPattern, &p.Decision, &p.ExpiresUnixMs, &p.CreatedAtUnixMs, &p.P2PMode); err != nil {
+		if err := rows.Scan(&p.ID, &p.Tenant, &p.CallerPattern, &p.TargetPattern, &p.MethodPattern, &p.Decision, &p.ExpiresUnixMs, &p.CreatedAtUnixMs, &p.P2PMode, &p.RelayMode); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

@@ -52,7 +52,7 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `outrelay-cli — operator interface to outrelay-controller
 
-  outrelay-cli policy add    --tenant T --caller P --target P [--method P] --decision allow|deny [--expires DURATION] [--p2p-mode allowed|forbidden|required]
+  outrelay-cli policy add    --tenant T --caller P --target P [--method P] --decision allow|deny [--expires DURATION] [--p2p-mode allowed|forbidden|required] [--relay-mode splice|forward]
   outrelay-cli policy list   --tenant T
   outrelay-cli policy remove --tenant T --id ID
   outrelay-cli audit  query  --tenant T [--caller P] [--target P] [--since DUR] [--limit N]
@@ -90,6 +90,7 @@ func policyAdd(args []string) {
 	decision := fs.String("decision", "", "allow | deny")
 	expires := fs.Duration("expires", 0, "TTL from now (e.g. 24h); 0 = never")
 	p2pMode := fs.String("p2p-mode", "", "allowed | forbidden | required (default: allowed)")
+	relayMode := fs.String("relay-mode", "", "splice | forward (default: splice)")
 	_ = fs.Parse(args)
 
 	if *tenant == "" || *caller == "" || *target == "" || *decision == "" {
@@ -103,6 +104,11 @@ func policyAdd(args []string) {
 	p2p, ok := parseP2PMode(*p2pMode)
 	if !ok {
 		fmt.Fprintln(os.Stderr, "policy add: invalid --p2p-mode (allowed|forbidden|required)")
+		os.Exit(2)
+	}
+	rm, ok := parseRelayMode(*relayMode)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "policy add: invalid --relay-mode (splice|forward)")
 		os.Exit(2)
 	}
 	var expiresMs int64
@@ -124,6 +130,7 @@ func policyAdd(args []string) {
 			Decision:      dec,
 			ExpiresUnixMs: expiresMs,
 			P2PMode:       p2p,
+			RelayMode:     rm,
 		},
 	})
 	if err != nil {
@@ -161,8 +168,8 @@ func policyList(args []string) {
 		if r.ExpiresUnixMs > 0 {
 			expires = time.UnixMilli(r.ExpiresUnixMs).Format(time.RFC3339)
 		}
-		fmt.Printf("%s\t%s -> %s (%s)\tmethod=%q\tp2p=%s\texpires=%s\n",
-			r.Id, r.CallerPattern, r.TargetPattern, decision, r.MethodPattern, p2pModeString(r.P2PMode), expires)
+		fmt.Printf("%s\t%s -> %s (%s)\tmethod=%q\tp2p=%s\trelay=%s\texpires=%s\n",
+			r.Id, r.CallerPattern, r.TargetPattern, decision, r.MethodPattern, p2pModeString(r.P2PMode), relayModeString(r.RelayMode), expires)
 	}
 }
 
@@ -275,4 +282,21 @@ func p2pModeString(m pb.P2PMode) string {
 		return "required"
 	}
 	return "allowed"
+}
+
+func parseRelayMode(s string) (pb.RelayMode, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "splice", "relay_mode_splice":
+		return pb.RelayMode_RELAY_MODE_SPLICE, true
+	case "forward", "relay_mode_forward":
+		return pb.RelayMode_RELAY_MODE_FORWARD, true
+	}
+	return pb.RelayMode_RELAY_MODE_SPLICE, false
+}
+
+func relayModeString(m pb.RelayMode) string {
+	if m == pb.RelayMode_RELAY_MODE_FORWARD {
+		return "forward"
+	}
+	return "splice"
 }

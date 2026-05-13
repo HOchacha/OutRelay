@@ -72,6 +72,7 @@ func (s *Server) AddPolicy(ctx context.Context, req *pb.AddPolicyRequest) (*pb.A
 		Decision:      decisionString(r.Decision),
 		ExpiresUnixMs: r.ExpiresUnixMs,
 		P2PMode:       p2pModeString(r.P2PMode),
+		RelayMode:     relayModeString(r.RelayMode),
 	}); err != nil {
 		s.logger.Warn("policy: add store failed",
 			"tenant", r.Tenant, "rule_id", id, "err", err)
@@ -83,7 +84,8 @@ func (s *Server) AddPolicy(ctx context.Context, req *pb.AddPolicyRequest) (*pb.A
 		"caller", r.CallerPattern, "target", r.TargetPattern,
 		"method", r.MethodPattern,
 		"decision", decisionString(r.Decision),
-		"p2p_mode", p2pModeString(r.P2PMode))
+		"p2p_mode", p2pModeString(r.P2PMode),
+		"relay_mode", relayModeString(r.RelayMode))
 	s.broadcast(&pb.PolicyEvent{
 		Kind: pb.PolicyEvent_POLICY_KIND_ADDED,
 		Rule: r,
@@ -255,6 +257,7 @@ func toPB(r store.Policy) *pb.PolicyRule {
 		ExpiresUnixMs:   r.ExpiresUnixMs,
 		CreatedAtUnixMs: r.CreatedAtUnixMs,
 		P2PMode:         p2pModePB(r.P2PMode),
+		RelayMode:       relayModePB(r.RelayMode),
 	}
 }
 
@@ -278,4 +281,18 @@ func p2pModePB(s string) pb.P2PMode {
 	default:
 		return pb.P2PMode_P2P_ALLOWED
 	}
+}
+
+func relayModeString(m pb.RelayMode) string {
+	if m == pb.RelayMode_RELAY_MODE_FORWARD {
+		return "forward"
+	}
+	return "splice"
+}
+
+func relayModePB(s string) pb.RelayMode {
+	if s == "forward" {
+		return pb.RelayMode_RELAY_MODE_FORWARD
+	}
+	return pb.RelayMode_RELAY_MODE_SPLICE
 }
